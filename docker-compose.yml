@@ -1,0 +1,61 @@
+version: "3.9"
+
+services:
+
+  # ── ClamAV Daemon ────────────────────────────────────────────────────────
+  clamav:
+    image: clamav/clamav:latest
+    container_name: neurovirus_clamav
+    restart: unless-stopped
+    ports:
+      - "3310:3310"
+    volumes:
+      - clamav_db:/var/lib/clamav
+    environment:
+      - CLAMAV_NO_CLAMD=false
+      - CLAMAV_NO_FRESHCLAMD=false
+    healthcheck:
+      test: ["CMD", "clamdscan", "--ping", "3"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s   # ClamAV needs time to update DBs on first run
+
+  # ── Flask Backend ─────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: neurovirus_backend
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./backend:/app
+      - uploads_vol:/app/uploads
+      - quarantine_vol:/app/quarantine
+    environment:
+      - VIRUSTOTAL_API_KEY=${VIRUSTOTAL_API_KEY:-}
+      - CLAMD_HOST=clamav
+      - CLAMD_PORT=3310
+      - SECRET_KEY=${SECRET_KEY:-change_me_in_production}
+    depends_on:
+      clamav:
+        condition: service_healthy
+
+  # ── React Frontend ────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: neurovirus_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  clamav_db:
+  uploads_vol:
+  quarantine_vol:
